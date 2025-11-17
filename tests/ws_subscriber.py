@@ -54,7 +54,7 @@ def format_message(msg: Dict[str, Any]) -> str:
         return f"[{timestamp}] {msg_type.upper()}: {json.dumps(data, indent=2)}"
 
 
-async def subscribe(url: str = "ws://localhost:8000/ws"):
+async def subscribe(url: str = "ws://localhost:8000/ws", raw: bool = False):
     """Connect to the WebSocket endpoint and print all messages."""
     print(f"Connecting to {url}...")
     
@@ -66,8 +66,13 @@ async def subscribe(url: str = "ws://localhost:8000/ws"):
             async for message in websocket:
                 try:
                     data = json.loads(message)
-                    formatted = format_message(data)
-                    print(formatted)
+                    if raw:
+                        # Print raw JSON with pretty formatting
+                        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                        print(f"[{timestamp}] {json.dumps(data, indent=2)}")
+                    else:
+                        formatted = format_message(data)
+                        print(formatted)
                 except json.JSONDecodeError:
                     print(f"[RAW] {message}")
                 except Exception as e:
@@ -107,6 +112,11 @@ def main():
         default=8000,
         help="Server port (default: 8000)"
     )
+    parser.add_argument(
+        "--raw",
+        action="store_true",
+        help="Show raw JSON output instead of formatted messages"
+    )
     
     args = parser.parse_args()
     
@@ -116,7 +126,7 @@ def main():
     else:
         url = args.url
     
-    asyncio.run(subscribe(url))
+    asyncio.run(subscribe(url, raw=args.raw))
 
 
 if __name__ == "__main__":
