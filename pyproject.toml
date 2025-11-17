@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
   "fastapi>=0.115.0",
-  "uvicorn[standard]>=0.30.0",
+  "uvicorn>=0.30.0",
   "pydantic>=2.7.0",
   "psutil>=6.0.0",
 ]
