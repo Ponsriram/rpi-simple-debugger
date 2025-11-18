@@ -84,6 +84,11 @@ Returns the most recent snapshot of all monitoring data.
 ```json
 {
   "gpio": {
+    "2": {
+      "pin": 2,
+      "value": 0,
+      "label": null
+    },
     "17": {
       "pin": 17,
       "value": 1,
@@ -115,7 +120,7 @@ Returns the most recent snapshot of all monitoring data.
 
 **Field Descriptions:**
 
-- `gpio`: Object containing the latest state of each monitored GPIO pin (only pins that have changed at least once)
+- `gpio`: Object containing the current state of all monitored GPIO pins (keyed by pin number)
 - `wifi`: Latest WiFi connection status
 - `bluetooth`: Latest Bluetooth status
 - `system`: Latest system health metrics
@@ -129,6 +134,7 @@ Establishes a WebSocket connection that broadcasts real-time updates whenever mo
 **Message Types:**
 
 All WebSocket messages follow this structure:
+
 ```json
 {
   "type": "<message_type>",
@@ -138,25 +144,64 @@ All WebSocket messages follow this structure:
 
 #### GPIO Update
 
-Sent whenever a GPIO pin changes state (0→1 or 1→0).
+Sent when:
+
+1. **Initial connection**: All monitored GPIO pins' current states are sent immediately upon WebSocket connection
+2. **State changes**: Whenever a GPIO pin changes state (0→1 or 1→0)
+
+#### GPIO Update
+
+Sent periodically (default: every 0.1 seconds) with the complete state of all monitored GPIO pins.
 
 ```json
 {
   "type": "gpio",
   "data": {
-    "pin": 17,
-    "value": 1,
-    "label": "LED"
+    "2": {
+      "pin": 2,
+      "value": 0,
+      "label": null
+    },
+    "17": {
+      "pin": 17,
+      "value": 1,
+      "label": "LED"
+    },
+    "27": {
+      "pin": 27,
+      "value": 0,
+      "label": "Button"
+    }
   }
 }
 ```
 
 **Fields:**
+
+- `data` (object): Dictionary with pin numbers as keys
 - `pin` (integer): BCM pin number
 - `value` (integer): Current pin state (0 = LOW, 1 = HIGH)
 - `label` (string|null): Human-readable label from configuration, or `null` if not set
 
-**Note:** GPIO updates are only sent when pin states change. Connect a button, switch, or wire to trigger updates.
+**Behavior:**
+
+- GPIO updates are sent at the configured polling interval (default: 0.1s), just like WiFi, Bluetooth, and System updates
+- Each message contains the complete state of **all** monitored GPIO pins
+- When a pin changes state, the next update will include the new value for that pin
+- All other pins in the message show their current (unchanged) state
+- This consistent format makes it easy to sync your UI with the complete GPIO state
+
+**Fields:**
+
+- `pin` (integer): BCM pin number
+- `value` (integer): Current pin state (0 = LOW, 1 = HIGH)
+- `label` (string|null): Human-readable label from configuration, or `null` if not set
+
+**Behavior:**
+
+- When you first connect to the WebSocket, you'll receive one message per monitored GPIO pin with its current state
+- After that, you'll only receive messages when a pin's state changes
+- This ensures you always know the complete current state without polling
 
 #### WiFi Update
 
@@ -175,6 +220,7 @@ Sent periodically (default: every 2 seconds) with WiFi connection status.
 ```
 
 **Fields:**
+
 - `connected` (boolean): Whether WiFi is currently connected
 - `ssid` (string|null): Network name, or `null` if disconnected
 - `ip_address` (string|null): Current IP address, or `null` if disconnected
@@ -195,6 +241,7 @@ Sent periodically (default: every 2 seconds) with Bluetooth status.
 ```
 
 **Fields:**
+
 - `powered` (boolean): Whether Bluetooth adapter is powered on
 - `connected` (boolean): Whether any Bluetooth device is currently connected
 
@@ -214,6 +261,7 @@ Sent periodically (default: every 2 seconds) with system health metrics.
 ```
 
 **Fields:**
+
 - `cpu_temp_c` (float|null): CPU temperature in Celsius, or `null` if unavailable
 - `cpu_percent` (float): CPU usage percentage (0-100)
 - `disk_used_percent` (float): Disk usage percentage (0-100)
@@ -229,6 +277,12 @@ python3 tests/ws_subscriber.py --host <pi-address>
 # View raw JSON output
 python3 tests/ws_subscriber.py --host <pi-address> --raw
 ```
+
+**What to expect when connecting:**
+
+1. You'll immediately receive the current state of all GPIO pins (10 messages by default)
+2. Then you'll receive WiFi, Bluetooth, and System updates every 2 seconds
+3. GPIO updates will only appear when pin states physically change
 
 ## Configuration
 

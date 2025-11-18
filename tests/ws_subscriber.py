@@ -27,28 +27,31 @@ def format_message(msg: Dict[str, Any]) -> str:
     data = msg.get("data", {})
     
     if msg_type == "gpio":
-        pin = data.get("pin", "?")
-        value = data.get("value", "?")
-        label = data.get("label", "")
-        label_str = f" ({label})" if label else ""
-        return f"[{timestamp}] GPIO: Pin {pin}{label_str} = {value}"
+        # GPIO data now contains all pins as a dict
+        pins_data = []
+        for pin_num, pin_info in sorted(data.items(), key=lambda x: int(x[0])):
+            value = pin_info.get("value", "?")
+            label = pin_info.get("label", "")
+            label_str = f" ({label})" if label else ""
+            pins_data.append(f"Pin {pin_num}{label_str}={value}")
+        return f"[{timestamp}] GPIO: {', '.join(pins_data)}"
     
     elif msg_type == "wifi":
         ssid = data.get("ssid", "N/A")
         connected = data.get("connected", False)
-        signal = data.get("signal_strength", "N/A")
-        return f"[{timestamp}] WiFi: {ssid} | Connected: {connected} | Signal: {signal}"
+        signal = data.get("signal_level_dbm", "N/A")
+        return f"[{timestamp}] WiFi: {ssid} | Connected: {connected} | Signal: {signal} dBm"
     
     elif msg_type == "bluetooth":
-        enabled = data.get("enabled", False)
-        devices = data.get("connected_devices", [])
-        return f"[{timestamp}] Bluetooth: Enabled: {enabled} | Devices: {len(devices)}"
+        powered = data.get("powered", False)
+        connected = data.get("connected", False)
+        return f"[{timestamp}] Bluetooth: Powered: {powered} | Connected: {connected}"
     
     elif msg_type == "system":
         cpu = data.get("cpu_percent", "N/A")
-        mem = data.get("memory_percent", "N/A")
-        temp = data.get("temperature_c", "N/A")
-        return f"[{timestamp}] System: CPU: {cpu}% | Memory: {mem}% | Temp: {temp}°C"
+        temp = data.get("cpu_temp_c", "N/A")
+        disk = data.get("disk_used_percent", "N/A")
+        return f"[{timestamp}] System: CPU: {cpu}% | Temp: {temp}°C | Disk: {disk}%"
     
     else:
         return f"[{timestamp}] {msg_type.upper()}: {json.dumps(data, indent=2)}"

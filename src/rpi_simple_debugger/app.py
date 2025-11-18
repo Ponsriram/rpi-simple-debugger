@@ -7,9 +7,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from .config import DebuggerSettings, load_settings
-from .gpio_monitor import GPIOMonitor, GPIOState
-from .network_monitor import NetworkMonitor, WiFiStatus, BluetoothStatus
-from .system_monitor import SystemMonitor, SystemHealth
+from .gpio_monitor import AllGPIOStates, GPIOMonitor
+from .network_monitor import BluetoothStatus, NetworkMonitor, WiFiStatus
+from .system_monitor import SystemHealth, SystemMonitor
 
 
 class ConnectionManager:
@@ -61,16 +61,9 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
         # Default to all BCM pins that are generally safe inputs for Pi 3/4.
         default_pins = [2, 3, 4, 17, 18, 22, 23, 24, 25, 27]
 
-        def on_gpio_change(state: GPIOState) -> None:
+        def on_gpio_update(all_states: AllGPIOStates) -> None:
             asyncio.run_coroutine_threadsafe(
-                push_update(
-                    "gpio",
-                    {
-                        "pin": state.pin,
-                        "value": state.value,
-                        "label": state.label,
-                    },
-                ),
+                push_update("gpio", all_states.to_dict()),
                 loop,
             )
 
@@ -78,7 +71,7 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
             pins=default_pins,
             label_map=settings.gpio_label_map,
             interval_s=settings.gpio_poll_interval_s,
-            on_change=on_gpio_change,
+            on_update=on_gpio_update,
         )
 
     def on_wifi(status: WiFiStatus) -> None:
@@ -138,6 +131,17 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:  # pragma: no cover
         await manager.connect(websocket)
+        
+        # Send initial state of all monitors when client connects
+        # This ensures clients immediately see current state
+        if gpio_monitor is not None:
+            all_gpio_states = gpio_monitor.get_all_states()
+            gpio_data = AllGPIOStates(all_gpio_states).to_dict()
+            await websocket.send_json({
+                "type": "gpio",
+                "data": gpio_data,
+            })
+        
         try:
             # For now, the client does not need to send anything.
             while True:

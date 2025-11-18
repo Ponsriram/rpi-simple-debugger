@@ -242,14 +242,21 @@ sudo systemctl status rpi-debugger
 Returns the current state of all monitors.
 
 **Request:**
+
 ```bash
 curl http://localhost:8000/status
 ```
 
 **Response:** `200 OK`
+
 ```json
 {
   "gpio": {
+    "2": {
+      "pin": 2,
+      "value": 0,
+      "label": null
+    },
     "17": {
       "pin": 17,
       "value": 1,
@@ -280,7 +287,8 @@ curl http://localhost:8000/status
 ```
 
 **Notes:**
-- The `gpio` object only contains pins that have changed state at least once
+
+- The `gpio` object contains all monitored GPIO pins with their current state
 - All values represent the most recent reading from each monitor
 - `null` values indicate data is unavailable
 
@@ -291,6 +299,7 @@ curl http://localhost:8000/status
 Establishes a persistent WebSocket connection for real-time updates.
 
 **Connection:**
+
 ```javascript
 const ws = new WebSocket('ws://localhost:8000/ws');
 
@@ -303,6 +312,7 @@ ws.onmessage = (event) => {
 **Message Format:**
 
 All messages follow this structure:
+
 ```json
 {
   "type": "gpio|wifi|bluetooth|system",
@@ -408,10 +418,19 @@ ws.on('error', (error) => {
 ### How It Works
 
 The GPIO monitor:
+
 1. Configures specified pins as inputs with BCM numbering
 2. Polls each pin at the configured interval (default: 0.1s)
-3. Detects state changes (0→1 or 1→0)
-4. Broadcasts changes via WebSocket
+3. **Sends complete GPIO state**: Broadcasts the state of **all** monitored pins at each polling interval
+4. **Updates are periodic**: Like WiFi, Bluetooth, and System monitors, GPIO sends updates regularly, not just on changes
+
+**Key behavior:**
+
+- GPIO updates are sent at the configured polling interval (default: every 0.1 seconds)
+- Each update contains the **complete state of all monitored pins**
+- When a pin changes state, the next update will reflect the new value
+- All other pins show their current (unchanged) state
+- This consistent format matches WiFi, Bluetooth, and System monitors
 
 ### Pin Numbering
 
@@ -433,27 +452,75 @@ Labels make it easier to identify pins in your application:
 }
 ```
 
+### Understanding GPIO Updates
+
+**Periodic State Updates:**
+GPIO updates work just like WiFi, Bluetooth, and System updates - they're sent periodically at the configured interval (default: every 0.1 seconds).
+
+Each message contains **all** monitored pins:
+
+```json
+{
+  "type": "gpio",
+  "data": {
+    "2": {"pin": 2, "value": 0, "label": null},
+    "3": {"pin": 3, "value": 0, "label": null},
+    "4": {"pin": 4, "value": 0, "label": null},
+    "17": {"pin": 17, "value": 1, "label": "Red LED"},
+    "18": {"pin": 18, "value": 0, "label": "Green LED"},
+    "22": {"pin": 22, "value": 0, "label": null},
+    "23": {"pin": 23, "value": 0, "label": null},
+    "24": {"pin": 24, "value": 0, "label": null},
+    "25": {"pin": 25, "value": 0, "label": null},
+    "27": {"pin": 27, "value": 1, "label": "Start Button"}
+  }
+}
+```
+
+By default, you'll receive 10 pins (2, 3, 4, 17, 18, 22, 23, 24, 25, 27) in each update.
+
+**When Pin State Changes:**
+When you connect pin 17 to GND (changing from 1 to 0), the next periodic update will show:
+
+```json
+{
+  "type": "gpio",
+  "data": {
+    "2": {"pin": 2, "value": 0, "label": null},
+    ...
+    "17": {"pin": 17, "value": 0, "label": "Red LED"},  // Changed!
+    ...
+  }
+}
+```
+
+All other pins remain at their current values. This makes it easy to keep your UI in sync with the complete GPIO state.
+
 ### Triggering GPIO Events
 
-GPIO updates are sent **only when pin states change**. To test:
+To see pin state changes after the initial broadcast:
 
 **Method 1: Jumper Wires**
+
 - Connect a pin to 3.3V → value becomes `1`
 - Connect a pin to GND → value becomes `0`
 - Disconnect → value may float (unreliable without pull resistors)
 
 **Method 2: Button/Switch**
+
 - Connect button between pin and GND
 - Enable internal pull-up in code (requires modification)
 - Press button → value becomes `0`
 
 **Method 3: External Circuit**
+
 - Use sensors, switches, or other digital outputs
 - Ensure voltage is 3.3V (NOT 5V - this can damage the Pi!)
 
 ### Safety Notes
 
 ⚠️ **Important GPIO Safety:**
+
 - Never connect 5V directly to GPIO pins (use 3.3V max)
 - Avoid connecting outputs from multiple sources to the same pin
 - GPIO pins can source/sink ~16mA max
@@ -465,12 +532,14 @@ GPIO updates are sent **only when pin states change**. To test:
 ### WiFi Monitoring
 
 The WiFi monitor uses `iwconfig` to gather:
+
 - Connection status
 - SSID (network name)
 - IP address
 - Signal strength in dBm
 
 **Signal Strength Guide:**
+
 - `-30 to -50 dBm`: Excellent
 - `-50 to -60 dBm`: Good
 - `-60 to -70 dBm`: Fair
@@ -480,6 +549,7 @@ The WiFi monitor uses `iwconfig` to gather:
 ### Bluetooth Monitoring
 
 Monitors Bluetooth adapter status:
+
 - Whether Bluetooth is powered on
 - Whether any device is connected
 
@@ -512,6 +582,7 @@ Monitors Bluetooth adapter status:
 ### Server Won't Start
 
 **Error: `Address already in use`**
+
 ```bash
 # Find process using port 8000
 sudo lsof -i :8000
@@ -524,6 +595,7 @@ uvicorn rpi_simple_debugger.app:create_app --factory --host 0.0.0.0 --port 8001
 ```
 
 **Error: `ModuleNotFoundError: No module named 'rpi_simple_debugger'`**
+
 ```bash
 # Ensure you're in the virtual environment
 source .venv/bin/activate
@@ -537,6 +609,7 @@ pip install -e .[raspberry]
 **Error: `WARNING: Unsupported upgrade request`**
 
 This means WebSocket support is missing. Install it:
+
 ```bash
 pip install websockets
 ```
@@ -544,6 +617,7 @@ pip install websockets
 **Connection refused from another device:**
 
 Ensure:
+
 1. Server is running on `0.0.0.0`, not `127.0.0.1`
 2. Firewall allows port 8000
 3. You're using the correct IP address
@@ -558,14 +632,28 @@ curl http://localhost:8000/status
 
 ### No GPIO Data
 
-GPIO updates only occur when pins **change state**. To see data:
-1. Connect a pin to 3.3V or GND
-2. Use a button or switch
-3. Check that GPIO is enabled in config
+**If you see no GPIO messages at all:**
+
+1. Check that GPIO is enabled in your configuration:
+
+   ```json
+   {
+     "gpio_enabled": true
+   }
+   ```
+
+2. Verify you're running on a Raspberry Pi (GPIO monitoring is disabled on other platforms)
+
+3. Check server logs for GPIO-related errors
+
+4. Ensure the GPIO monitor started successfully (check startup logs)
+
+**GPIO updates should arrive periodically** (default: every 0.1 seconds) with the complete state of all monitored pins, similar to how WiFi, Bluetooth, and System updates work.
 
 ### Permission Errors (GPIO)
 
 If you see GPIO permission errors:
+
 ```bash
 # Add your user to the gpio group
 sudo usermod -a -G gpio $USER
@@ -576,6 +664,7 @@ sudo usermod -a -G gpio $USER
 ### High CPU Usage
 
 If the server uses too much CPU:
+
 1. Increase polling intervals in configuration
 2. Disable unnecessary monitors
 3. Check for infinite loops in custom code
@@ -619,6 +708,7 @@ def read_root():
 ```
 
 Access debugger at:
+
 - `http://localhost:8000/debugger/status`
 - `ws://localhost:8000/debugger/ws`
 
@@ -666,6 +756,7 @@ uvicorn rpi_simple_debugger.app:create_app --factory --host 0.0.0.0 --port 8000
 ### Optimizing for Your Use Case
 
 **Low-latency GPIO monitoring:**
+
 ```json
 {
   "gpio_poll_interval_s": 0.05,
@@ -675,6 +766,7 @@ uvicorn rpi_simple_debugger.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
 **Low CPU usage:**
+
 ```json
 {
   "gpio_poll_interval_s": 1.0,
@@ -684,6 +776,7 @@ uvicorn rpi_simple_debugger.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
 **Battery-powered applications:**
+
 - Increase all polling intervals
 - Disable unnecessary monitors
 - Consider event-driven GPIO instead of polling (requires code modification)
@@ -691,6 +784,7 @@ uvicorn rpi_simple_debugger.app:create_app --factory --host 0.0.0.0 --port 8000
 ### Scaling Considerations
 
 For multiple concurrent WebSocket clients:
+
 - The server handles broadcasting to all connected clients
 - Memory usage scales with number of connections
 - Test with your expected number of clients
@@ -699,6 +793,7 @@ For multiple concurrent WebSocket clients:
 ### Network Performance
 
 Reduce WebSocket message frequency by:
+
 - Increasing polling intervals
 - Filtering data server-side
 - Implementing client-side throttling
